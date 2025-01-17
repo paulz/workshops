@@ -9,7 +9,10 @@ class SimpleResponseGenerator(weave.Model):
     temperature: float = 0.7
     max_tokens: int = 4096
     system_prompt: str = (
-        "Answer the following question about Weights & Biases based on the provided product documentation. Note: not all documents may be relevant to the query."
+        "You are an AI assistant specializing in financial analysis and SEC filings interpretation. "
+        "Answer questions about company financial reports, earnings calls, and regulatory filings "
+        "based on the provided documents. Provide accurate, factual information and cite specific "
+        "sources when referencing financial data. Note: not all documents may be relevant to the query."
     )
 
     @weave.op
@@ -37,14 +40,14 @@ class QueryEnhancedResponseGenerator(weave.Model):
 
     @weave.op
     async def invoke(
-        self, query: str, documents: list[dict[str, Any]], intents: str
+        self, query: str, documents: list[dict[str, Any]], intents: str, language: str = "English"
     ) -> dict[str, Any]:
         response = await acompletion(
             model=self.model,
             messages=[
                 {
                     "role": "system",
-                    "content": self.system_prompt.format(intents=intents),
+                    "content": self.system_prompt.format(intents=intents, language=language),
                 },
                 {"role": "user", "content": query},
             ],

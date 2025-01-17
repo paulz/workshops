@@ -7,9 +7,9 @@ from litellm.types.utils import ModelResponse
 from tools import TOOL_SCHEMAS, FUNCTION_MAP
 
 
-class WandbAgent(weave.Model):
+class Agent(weave.Model):
     system_prompt: str = open("prompts/agent.txt", "r").read()
-    model: str = "command-r-08-2024"
+    model: str = "gpt-4o-mini"
     temperature: float = 0.1
     tools: list[dict[str, Any]] = TOOL_SCHEMAS
 

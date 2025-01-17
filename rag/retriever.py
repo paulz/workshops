@@ -3,14 +3,13 @@ from functools import partial
 from typing import Any
 
 import Stemmer
+import pinecone
+from pinecone import Pinecone
 
 import bm25s
-import lancedb
 import litellm
 import numpy as np
 import weave
-from lancedb.index import FTS
-from litellm import aembedding, arerank
 from litellm.caching.caching import Cache
 from scipy.spatial.distance import cdist
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -133,13 +132,17 @@ class BM25SearchEngine:
         return output
 
 
-async def batch_embed(vectorizer, docs, input_type="search_document", batch_size=50):
+async def batch_embed(pc, docs, input_type="search_document", batch_size=50):
     all_embeddings = []
     for i in range(0, len(docs), batch_size):
         batch = docs[i : i + batch_size]
-        embeddings = await vectorizer(input=batch, input_type=input_type)
-        all_embeddings.append([embedding["embedding"] for embedding in embeddings.data])
-    return np.concatenate(all_embeddings, axis=0)
+        embeddings = await pc.embed(
+            model="multilingual-e5-large",
+            input_type=input_type,
+            input=batch
+        )
+        all_embeddings.append([embedding for embedding in embeddings.values])
+    return np.array(all_embeddings)
 
 
 class DenseSearchEngine:
@@ -152,8 +155,9 @@ class DenseSearchEngine:
         data (list): The data to be indexed.
     """
 
-    def __init__(self, model="embed-english-light-v3.0"):
-        self._vectorizer = partial(aembedding, model=model, caching=True)
+    def __init__(self, model="multilingual-e5-large"):
+        self._pc = Pinecone()
+        self._model = model
         self._index = None
         self._data = None
 
@@ -168,7 +172,7 @@ class DenseSearchEngine:
         self._data = data
         docs = [doc["text"] for doc in data]
         embeddings = await batch_embed(
-            self._vectorizer, docs, input_type="search_document"
+            self._pc, docs, input_type="search_document"
         )
         self._index = np.array(embeddings)
         return self
@@ -185,7 +189,7 @@ class DenseSearchEngine:
             list: A list of dictionaries containing the source, text, and score of the top-k results.
         """
         query_embedding = await batch_embed(
-            self._vectorizer,
+            self._pc,
             [query],
             input_type="search_query",
         )
@@ -218,56 +222,67 @@ def make_batches_for_db(vectorizer, data, batch_size=50):
 class VectorStoreSearchEngine:
     def __init__(
         self,
-        uri="data/docsdb",
-        embedding_model="embed-english-light-v3.0",
+        index_name="docs",
+        embedding_model="multilingual-e5-large",
+        environment="gcp-starter"
     ):
-        self._vectorizer = partial(aembedding, model=embedding_model, caching=True)
-        self._uri = uri
-        self._db = None
-        self._table = None
+        self._pc = Pinecone()
+        self._model = embedding_model
+        self._index_name = index_name
+        self._environment = environment
+        self._index = None
 
     async def fit(self, data):
-        self._db = await lancedb.connect_async(self._uri)
-        self._table = await self._db.create_table(
-            "docs",
-            data=make_batches_for_db(self._vectorizer, data),
-            mode="overwrite",
-            exist_ok=True,
-        )
-        await self._table.create_index("text", config=FTS())
+        pinecone.init(environment=self._environment)
+        
+        if self._index_name not in pinecone.list_indexes():
+            pinecone.create_index(
+                name=self._index_name,
+                dimension=384,
+                metric="cosine"
+            )
+        
+        self._index = pinecone.Index(self._index_name)
+        
+        batch_size = 50
+        for i in range(0, len(data), batch_size):
+            batch = data[i:i + batch_size]
+            texts = [doc["text"] for doc in batch]
+            embeddings = await batch_embed(self._pc, texts, input_type="search_document")
+            
+            vectors = [
+                (str(i + idx), embedding.tolist(), {k: v for k, v in doc.items() if k != "vector"})
+                for idx, (embedding, doc) in enumerate(zip(embeddings, batch))
+            ]
+            self._index.upsert(vectors=vectors)
+            
         return self
 
     async def load(self):
-        self._db = await lancedb.connect_async(self._uri)
-        self._table = await self._db.open_table("docs")
+        pinecone.init(environment=self._environment)
+        self._index = pinecone.Index(self._index_name)
         return self
 
     async def search(self, query, top_k=5, filters=None):
         query_embedding = await batch_embed(
-            self._vectorizer,
+            self._pc,
             [query],
             input_type="search_query",
         )
-        if filters is not None:
-            results = (
-                await self._table.query()
-                .nearest_to(query_embedding[0])
-                .nearest_to_text(query)
-                .where(filters)
-                .limit(top_k)
-                .to_list()
-            )
-        else:
-            results = (
-                await self._table.query()
-                .nearest_to(query_embedding[0])
-                .nearest_to_text(query)
-                .limit(top_k)
-                .to_list()
-            )
-        results = [
-            {k: v for k, v in result.items() if k != "vector"} for result in results
-        ]
+        
+        query_results = self._index.query(
+            vector=query_embedding[0].tolist(),
+            top_k=top_k,
+            filter=filters,
+            include_metadata=True
+        )
+        
+        results = []
+        for match in query_results.matches:
+            result = match.metadata
+            result["score"] = round(float(match.score), 4)
+            results.append(result)
+            
         return results
 
 
@@ -280,18 +295,26 @@ class Retriever(weave.Model):
 
 
 class Reranker(weave.Model):
-    model: str = "cohere/rerank-english-v3.0"
+    model: str = "bge-reranker-v2-m3"
 
     @weave.op
     async def invoke(self, query: str, documents: list[dict[str, Any]], top_n: int = 5):
-        reranked_docs = await arerank(
-            model=self.model, query=query, documents=documents, top_n=top_n
+        pc = Pinecone()
+        texts = [doc["text"] for doc in documents]
+        
+        reranked = await pc.rerank(
+            model=self.model,
+            query=query,
+            documents=texts,
+            top_n=top_n,
+            truncate="END"
         )
+        
         output_docs = []
-        for result in reranked_docs["results"]:
-            reranked_doc = documents[result["index"]]
-            reranked_doc["score"] = round(float(result["relevance_score"]), 4)
-            output_docs.append(reranked_doc)
+        for result in reranked.results:
+            doc = documents[result.index]
+            doc["score"] = round(float(result.score), 4)
+            output_docs.append(doc)
         return output_docs
 
 

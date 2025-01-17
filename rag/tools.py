@@ -27,20 +27,24 @@ class SearchInternet(BaseModel):
 
 
 class SearchDocumentation(BaseModel):
-    """Searches the Weights & Biases developer documentation. Use this tool for queries related to the Weights & Biases API, SDKs, or other developer resources."""
+    """Searches financial documents and SEC filings. Use this tool for queries related to company financial reports, earnings calls, and regulatory filings."""
 
     search_query: str = Field(
         ...,
-        description="A detailed Natural Language query to search the Weights & Biases documentation for",
+        description="A detailed query to search financial documents and SEC filings",
     )
     num_results: int = Field(10, description="The number of results to return")
-    docs_db: str = "data/docsdb"
+    docs_db: str = "data/financial_docs_db"
+    pinecone_env: str = Field("gcp-starter", description="Pinecone environment")
     _retriever: Any = PrivateAttr()
 
     def model_post_init(self, _context: Any) -> None:
         from retriever import VectorStoreSearchEngine, RetrieverWithReranker
 
-        search_engine = VectorStoreSearchEngine(uri=self.docs_db)
+        search_engine = VectorStoreSearchEngine(
+            index_name=self.docs_db,
+            environment=self.pinecone_env
+        )
         search_engine = asyncio.run(search_engine.load())
 
         self._retriever = RetrieverWithReranker(search_engine=search_engine)
@@ -52,43 +56,12 @@ class SearchDocumentation(BaseModel):
         )
         return {"results": "\n\n".join([format_doc(result) for result in results])}
 
-
-class SearchCode(BaseModel):
-    """Searches code examples and tutorials on using Weights & Biases."""
-
-    search_query: str = Field(
-        ...,
-        description="A detailed Natural Language query to search the Weights & Biases documentation for",
-    )
-    num_results: int = Field(10, description="The number of results to return")
-    docs_db: str = "data/docsdb"
-    _retriever: Any = PrivateAttr()
-
-    def model_post_init(self, _context: Any) -> None:
-        from retriever import VectorStoreSearchEngine, RetrieverWithReranker
-
-        search_engine = VectorStoreSearchEngine(uri=self.docs_db)
-        search_engine = asyncio.run(search_engine.load())
-
-        self._retriever = RetrieverWithReranker(search_engine=search_engine)
-
-    @weave.op
-    async def run(self) -> dict[str, str]:
-        filters = "file_type IN ('python', 'notebook')"
-        results = await self._retriever.invoke(
-            self.search_query,
-            top_k=self.num_results * 2,
-            top_n=self.num_results,
-            filters=filters,
-        )
-        return {"results": "\n\n".join([format_doc(result) for result in results])}
-
-
 tools = [
     SearchInternet(search_query=""),
     SearchDocumentation(search_query="", num_results=5),
-    SearchCode(search_query="", num_results=5),
 ]
+
+
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -107,5 +80,4 @@ TOOL_SCHEMAS = [
 FUNCTION_MAP = {
     "SearchInternet": SearchInternet,
     "SearchDocumentation": SearchDocumentation,
-    "SearchCode": SearchCode,
 }
