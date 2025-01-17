@@ -1,18 +1,20 @@
-import json
-import httpx
 import asyncio
-from lxml import etree
-from urllib.parse import urlparse
-from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode, BrowserConfig
-from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+import json
 import os
 import sys
 import uuid
-from pathlib import Path
 import zipfile
-import wandb
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from pathlib import Path
+from urllib.parse import urlparse
+
+import httpx
 import urllib3.exceptions
+import wandb
+from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
+from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+from lxml import etree
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+
 from utils import mdify
 
 

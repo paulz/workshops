@@ -1,5 +1,8 @@
-import weave
+import asyncio
 from typing import Any
+
+import weave
+
 from utils import format_doc
 
 
@@ -97,12 +100,13 @@ class QueryEnhancedRAGPipeline(weave.Model):
 
         contexts = []
         if not avoid_retrieval:
-            retriever_queries = enhanced_query["search_queries"]
-            retriever_results = await self.retriever.invoke(user_query, self.top_k)
-            contexts.append(retriever_results)
+            tasks = []
+            retriever_queries = [user_query] + enhanced_query["search_queries"]
             for query in retriever_queries:
-                context = await self.retriever.invoke(query, self.top_k)
-                contexts.append(context)
+                tasks.append(self.retriever.invoke(query, self.top_k))
+            retriever_results = await asyncio.gather(*tasks)
+            for result in retriever_results:
+                contexts.append(result)
 
         deduped = {}
         for context in contexts:

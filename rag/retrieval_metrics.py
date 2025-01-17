@@ -1,7 +1,9 @@
+from typing import Any
+
+import numpy as np
 import weave
 from weave.scorers import Scorer
-from typing import Any
-import numpy as np
+
 from scorers import DocumentRelevanceScorer
 
 

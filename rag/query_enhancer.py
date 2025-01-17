@@ -1,10 +1,10 @@
-import weave
-
-import instructor
-from litellm import acompletion
-from pydantic import BaseModel, Field
 from enum import Enum
 from typing import Any, List
+
+import instructor
+import weave
+from litellm import acompletion
+from pydantic import BaseModel, Field
 
 
 class SearchQueries(BaseModel):
