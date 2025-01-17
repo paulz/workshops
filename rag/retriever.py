@@ -2,11 +2,12 @@ import asyncio
 from functools import partial
 from typing import Any
 
+import Stemmer
+
 import bm25s
 import lancedb
 import litellm
 import numpy as np
-import Stemmer
 import weave
 from lancedb.index import FTS
 from litellm import aembedding, arerank
@@ -234,6 +235,11 @@ class VectorStoreSearchEngine:
             exist_ok=True,
         )
         await self._table.create_index("text", config=FTS())
+        return self
+
+    async def load(self):
+        self._db = await lancedb.connect_async(self._uri)
+        self._table = await self._db.open_table("docs")
         return self
 
     async def search(self, query, top_k=5, filters=None):
