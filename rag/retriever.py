@@ -4,7 +4,7 @@ from typing import Any
 
 import Stemmer
 import pinecone
-from pinecone import Pinecone
+from pinecone.grpc import PineconeGRPC as Pinecone
 
 import bm25s
 import litellm
@@ -136,12 +136,12 @@ async def batch_embed(pc, docs, input_type="search_document", batch_size=50):
     all_embeddings = []
     for i in range(0, len(docs), batch_size):
         batch = docs[i : i + batch_size]
-        embeddings = await pc.embed(
+        embeddings = await pc.inference.embed(
             model="multilingual-e5-large",
-            input_type=input_type,
-            input=batch
+            inputs=batch,
+            parameters={"input_type": input_type, "truncate": "END"}
         )
-        all_embeddings.append([embedding for embedding in embeddings.values])
+        all_embeddings.append(embeddings)
     return np.array(all_embeddings)
 
 
@@ -302,16 +302,17 @@ class Reranker(weave.Model):
         pc = Pinecone()
         texts = [doc["text"] for doc in documents]
         
-        reranked = await pc.rerank(
+        reranked = await pc.inference.rerank(
             model=self.model,
             query=query,
-            documents=texts,
+            documents=[{"text": text} for text in texts],
             top_n=top_n,
-            truncate="END"
+            return_documents=True,
+            parameters={"truncate": "END"}
         )
         
         output_docs = []
-        for result in reranked.results:
+        for result in reranked:
             doc = documents[result.index]
             doc["score"] = round(float(result.score), 4)
             output_docs.append(doc)
