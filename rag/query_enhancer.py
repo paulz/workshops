@@ -53,6 +53,9 @@ class IntentPrediction(BaseModel):
 class QueryEnhancer(weave.Model):
     """A class for enhancing user queries using the Cohere API."""
 
+    model: str = "command-r-08-2024"
+    temperature: float = 0.5
+
     @weave.op
     async def generate_search_queries(self, query: str) -> list[str]:
         """
@@ -68,7 +71,8 @@ class QueryEnhancer(weave.Model):
         prompt = open("prompts/search_query.txt", "r").read()
         prompt += f"\n<question>\n{query}\n</question>\n"
         search_queries = await client.chat.completions.create(
-            model="command-r",
+            model=self.model,
+            temperature=self.temperature,
             messages=[
                 {"role": "user", "content": prompt},
             ],
@@ -95,7 +99,8 @@ class QueryEnhancer(weave.Model):
         prompt = open("prompts/intent_prediction.txt", "r").read()
         prompt += f"\n<question>\n{question}\n</question>"
         intents = await client.chat.completions.create(
-            model="command-r",
+            model=self.model,
+            temperature=self.temperature,
             messages=[{"role": "user", "content": prompt}],
             force_single_step=True,
             response_model=IntentPrediction,

@@ -2,17 +2,35 @@ import asyncio
 from typing import Any
 
 import weave
-
 from utils import format_doc
 
 
 class SimpleRAGPipeline(weave.Model):
+    """
+    SimpleRAGPipeline is a class that implements a simple Retrieval-Augmented Generation (RAG) pipeline.
+
+    Attributes:
+        retriever (weave.Model): The model used for retrieving relevant documents.
+        generator (weave.Model): The model used for generating responses.
+        top_k (int): The number of top documents to retrieve.
+    """
+
     retriever: weave.Model
     generator: weave.Model
     top_k: int = 5
 
     @weave.op
     async def invoke(self, query: str, top_k: int | None = None) -> dict[str, Any]:
+        """
+        Invokes the RAG pipeline to generate a response based on the input query.
+
+        Args:
+            query (str): The input query string.
+            top_k (int, optional): The number of top documents to retrieve. Defaults to the class attribute top_k.
+
+        Returns:
+            dict: A dictionary containing the generated response and the retrieved context.
+        """
         if not top_k:
             top_k = self.top_k
         docs = await self.retriever.invoke(query=query, top_k=top_k)
@@ -115,10 +133,14 @@ class QueryEnhancedRAGPipeline(weave.Model):
                     deduped[doc["chunk_id"]] = doc
         contexts = list(deduped.values())
 
+        reranked_contexts = await self.retriever.reranker.invoke(
+            query=user_query, documents=contexts, top_n=self.top_k
+        )
+
         intent_action = "\n".join(
             [INTENT_ACTIONS[intent["intent"]] for intent in intents]
         )
-        docs_data = [{"document": format_doc(item)} for item in contexts]
+        docs_data = [{"document": format_doc(item)} for item in reranked_contexts]
         response = await self.response_generator.invoke(
             user_query, docs_data, intent_action
         )

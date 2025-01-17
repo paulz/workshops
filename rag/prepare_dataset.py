@@ -12,13 +12,22 @@ import urllib3.exceptions
 import wandb
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+from crawl4ai.models import CrawlResult
 from lxml import etree
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
-
 from utils import mdify
 
 
-async def get_urls(sitemap_url):
+async def get_urls(sitemap_url: str) -> list[str]:
+    """
+    Fetches and parses URLs from a sitemap.
+
+    Args:
+        sitemap_url (str): The URL of the sitemap to fetch.
+
+    Returns:
+        list: A list of unique URLs extracted from the sitemap.
+    """
     async with httpx.AsyncClient() as client:
         response = await client.get(sitemap_url)
         response.raise_for_status()
@@ -28,7 +37,17 @@ async def get_urls(sitemap_url):
         return list(set(urls))
 
 
-def filter_wandb_docs_urls(urls):
+def filter_wandb_docs_urls(urls: list[str]) -> list[str]:
+    """
+    Filters a list of URLs to include only those related to Weights & Biases documentation.
+    sections we think are necessary.
+
+    Args:
+        urls (list): A list of URLs to filter.
+
+    Returns:
+        list: A sorted list of unique URLs that match the specified documentation paths.
+    """
     all_urls = []
     for url in urls:
         url = urlparse(url)
@@ -40,7 +59,17 @@ def filter_wandb_docs_urls(urls):
     return all_urls
 
 
-def filter_weave_docs_urls(urls):
+def filter_weave_docs_urls(urls: list[str]) -> list[str]:
+    """
+    Filters a list of URLs to include only those related to Weave documentation.
+    we think are necessary
+
+    Args:
+        urls (list): A list of URLs to filter.
+
+    Returns:
+        list: A sorted list of unique URLs that match the specified documentation paths.
+    """
     all_urls = []
     for url in urls:
         url = urlparse(url)
@@ -54,7 +83,17 @@ def filter_weave_docs_urls(urls):
     return all_urls
 
 
-async def craw_parallel(urls, max_concurrent=5):
+async def craw_parallel(urls: list[str], max_concurrent: int = 5) -> list[CrawlResult]:
+    """
+    Crawls multiple URLs in parallel using an asynchronous web crawler.
+
+    Args:
+        urls (list): A list of URLs to crawl.
+        max_concurrent (int, optional): The maximum number of concurrent crawling tasks. Defaults to 5.
+
+    Returns:
+        list: A list of results from the crawled URLs.
+    """
     browser_config = BrowserConfig(
         headless=True,
         verbose=False,
@@ -90,7 +129,17 @@ async def craw_parallel(urls, max_concurrent=5):
     return all_results
 
 
-async def crawl_docs(sitemap_url, max_concurrent=5):
+async def crawl_docs(sitemap_url: str, max_concurrent: int = 5) -> list[dict[str, str]]:
+    """
+    Crawls documentation pages from a sitemap URL and processes them.
+
+    Args:
+        sitemap_url (str): The URL of the sitemap to fetch.
+        max_concurrent (int, optional): The maximum number of concurrent crawling tasks. Defaults to 5.
+
+    Returns:
+        list: A list of dictionaries containing the content and URI of each crawled document.
+    """
     urls = await get_urls(sitemap_url)
     loc = urlparse(sitemap_url).netloc
     if loc == "docs.wandb.ai":
@@ -110,7 +159,16 @@ async def crawl_docs(sitemap_url, max_concurrent=5):
     return documents
 
 
-async def crawl_wandb_docs(max_concurrent=5):
+async def crawl_wandb_docs(max_concurrent: int = 5) -> list[dict[str, str]]:
+    """
+    Crawls Weights & Biases documentation pages.
+
+    Args:
+        max_concurrent (int, optional): The maximum number of concurrent crawling tasks. Defaults to 5.
+
+    Returns:
+        list: A list of dictionaries containing the content and URI of each crawled document.
+    """
     sitemap_url = "https://docs.wandb.ai/sitemap.xml"
     documents = await crawl_docs(sitemap_url, max_concurrent)
     for document in documents[:]:
@@ -119,7 +177,16 @@ async def crawl_wandb_docs(max_concurrent=5):
     return documents
 
 
-async def crawl_weave_docs(max_concurrent=5):
+async def crawl_weave_docs(max_concurrent: int = 5) -> list[dict[str, str]]:
+    """
+    Crawls Weave documentation pages.
+
+    Args:
+        max_concurrent (int, optional): The maximum number of concurrent crawling tasks. Defaults to 5.
+
+    Returns:
+        list: A list of dictionaries containing the content and URI of each crawled document.
+    """
     sitemap_url = "https://weave-docs.wandb.ai/sitemap.xml"
     documents = await crawl_docs(sitemap_url, max_concurrent)
     for document in documents[:]:
@@ -136,7 +203,7 @@ async def crawl_weave_docs(max_concurrent=5):
     stop=stop_after_attempt(10),
     wait=wait_fixed(60),
 )
-async def download_file(*, url, path, client=None):
+async def download_file(*, url: str, path: str, client: Any = None) -> str:
     """
     Atomically download a file from ``url`` to ``path``.
 

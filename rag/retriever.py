@@ -41,8 +41,12 @@ class TfidfSearchEngine:
             data (list): A list of documents to be indexed. Each document should be a dictionary
                          containing a key 'cleaned_content' with the text to be indexed.
         """
+        # store the original data as is so we can use it for retrieval later
         self._data = data
+        # just extract the text from the documents
         docs = [doc["text"] for doc in self._data]
+        # our instance is simply an instance of TfidfVectorizer from scikit-learn
+        # we use the fit_transform method to vectorize the documents
         self._index = self._vectorizer.fit_transform(docs)
         return self
 
@@ -61,16 +65,22 @@ class TfidfSearchEngine:
         """
         assert self._index is not None, "Index is not set"
         assert self._data is not None, "Data is not set"
+        # vectorize the query
         query_vec = self._vectorizer.transform([query])
+        # compute the cosine distance between the query vector and the indexed vectors
         cosine_distances = cdist(
             query_vec.todense(), self._index.todense(), metric="cosine"
         )[0]
+        # get the top-k indices of the indexed vectors that are most similar to the query vector
         top_k_indices = cosine_distances.argsort()[:top_k]
+        # create the output list of dictionaries
         output = []
+        # iterate over the top-k indices and append the corresponding document to the output list
         for idx in top_k_indices:
             output.append(
                 {"score": round(float(1 - cosine_distances[idx]), 4), **self._data[idx]}
             )
+        # return the output list of dictionaries
         return output
 
 
@@ -97,11 +107,15 @@ class BM25SearchEngine:
             data (list): A list of documents to be indexed. Each document should be a dictionary
                          containing a key 'cleaned_content' with the text to be indexed.
         """
+        # store the original data as is so we can use it for retrieval later
         self._data = data
+        # just extract the text from the documents
         corpus = [doc["text"] for doc in data]
-
+        # our instance is simply an instance of bm25s.BM25 from the bm25s library
+        # we use the tokenize method to tokenize the documents
+        # we use the index method to index the documents
         corpus_tokens = bm25s.tokenize(corpus, show_progress=False, stopwords="english")
-
+        # index the documents and store the corpus tokens in the index
         self._index.index(corpus_tokens, show_progress=False)
         return self
 
@@ -116,8 +130,11 @@ class BM25SearchEngine:
         Returns:
             list: A list of dictionaries containing the source, text, and score of the top-k results.
         """
+        assert self._index is not None, "Index is not set"
+        assert self._data is not None, "Data is not set"
+        # tokenize the query
         query_tokens = bm25s.tokenize(query, show_progress=False, stopwords="english")
-        # Get top-k results as a tuple of (doc ids, scores). Both are arrays of shape (n_queries, k)
+        # get the top-k results as a tuple of (doc ids, scores). Both are arrays of shape (n_queries, k)
         results, scores = self._index.retrieve(
             query_tokens, corpus=self._data, k=top_k, show_progress=False
         )
