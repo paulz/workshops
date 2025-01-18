@@ -6,6 +6,7 @@ from typing import Any
 import weave
 from pydantic import BaseModel, Field, PrivateAttr
 from tavily import AsyncTavilyClient
+
 from utils import format_doc
 
 
@@ -38,7 +39,7 @@ class SearchDocumentation(BaseModel):
     _retriever: Any = PrivateAttr()
 
     def model_post_init(self, _context: Any) -> None:
-        from retriever import VectorStoreSearchEngine, RetrieverWithReranker
+        from retriever import RetrieverWithReranker, VectorStoreSearchEngine
 
         search_engine = VectorStoreSearchEngine(uri=self.docs_db)
         search_engine = asyncio.run(search_engine.load())
@@ -65,7 +66,7 @@ class SearchCode(BaseModel):
     _retriever: Any = PrivateAttr()
 
     def model_post_init(self, _context: Any) -> None:
-        from retriever import VectorStoreSearchEngine, RetrieverWithReranker
+        from retriever import RetrieverWithReranker, VectorStoreSearchEngine
 
         search_engine = VectorStoreSearchEngine(uri=self.docs_db)
         search_engine = asyncio.run(search_engine.load())

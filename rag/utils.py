@@ -2,12 +2,14 @@ import json
 import pathlib
 from copy import deepcopy
 from hashlib import md5
+from typing import Any
 
 import frontmatter
 import markdown
+import weave
 from bs4 import BeautifulSoup
 from IPython.display import Markdown, display
-from litellm import decode, encode
+from litellm import acompletion, decode, encode
 from markdownify import markdownify
 from nbconvert import MarkdownExporter as NBMarkdownExporter
 from nbformat import reads as readnb
@@ -17,7 +19,7 @@ from traitlets.config import Config as NBConfig
 from tree_sitter_languages import get_parser
 
 
-def mdify(html):
+def mdify(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for nav in soup.find_all("nav"):
         nav.decompose()
@@ -652,3 +654,15 @@ def chunk_dataset(ds, chunk_size=500):
                 doc_chunk["doc_id"] = doc_id
                 all_chunks.append(doc_chunk)
     return all_chunks
+
+
+@weave.op
+async def run_llm(
+    model: str = "command-r-08-2024",
+    temperature: float = 0.1,
+    messages: list[dict[str, Any]] = None,
+) -> str:
+    response = await acompletion(
+        model=model, temperature=temperature, messages=messages
+    )
+    return response.choices[0].message.content

@@ -4,7 +4,8 @@ from typing import Any
 import weave
 from litellm import acompletion
 from litellm.types.utils import ModelResponse
-from tools import TOOL_SCHEMAS, FUNCTION_MAP
+
+from tools import FUNCTION_MAP, TOOL_SCHEMAS
 
 
 class WandbAgent(weave.Model):

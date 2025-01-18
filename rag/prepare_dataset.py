@@ -15,6 +15,7 @@ from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from crawl4ai.models import CrawlResult
 from lxml import etree
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+
 from utils import mdify
 
 

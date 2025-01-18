@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 
 import weave
+
 from utils import format_doc
 
 

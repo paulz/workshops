@@ -2,12 +2,11 @@ import asyncio
 from functools import partial
 from typing import Any
 
-import Stemmer
-
 import bm25s
 import lancedb
 import litellm
 import numpy as np
+import Stemmer
 import weave
 from lancedb.index import FTS
 from litellm import aembedding, arerank
