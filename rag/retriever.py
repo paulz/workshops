@@ -1,5 +1,7 @@
 import asyncio
+import os
 from functools import partial
+from threading import Lock
 from typing import Any
 
 import bm25s
@@ -9,8 +11,10 @@ import numpy as np
 import Stemmer
 import weave
 from lancedb.index import FTS
-from litellm import aembedding, arerank
+from litellm import aembedding
 from litellm.caching.caching import Cache
+from pydantic import PrivateAttr
+from rerankers import Reranker as AnsReranker
 from scipy.spatial.distance import cdist
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -149,11 +153,21 @@ class BM25SearchEngine:
         return output
 
 
-async def batch_embed(vectorizer, docs, input_type="search_document", batch_size=50):
+async def batch_embed(
+    vectorizer, docs, input_type=None, dimensions=None, batch_size=50
+):
+    if input_type is None:
+        _vectorizer = vectorizer
+    else:
+        _vectorizer = partial(vectorizer, input_type=input_type)
+    if dimensions is None:
+        __vectorizer = _vectorizer
+    else:
+        __vectorizer = partial(_vectorizer, dimensions=dimensions)
     all_embeddings = []
     for i in range(0, len(docs), batch_size):
         batch = docs[i : i + batch_size]
-        embeddings = await vectorizer(input=batch, input_type=input_type)
+        embeddings = await __vectorizer(input=batch)
         all_embeddings.append([embedding["embedding"] for embedding in embeddings.data])
     return np.concatenate(all_embeddings, axis=0)
 
@@ -168,7 +182,11 @@ class DenseSearchEngine:
         data (list): The data to be indexed.
     """
 
-    def __init__(self, model="embed-english-light-v3.0"):
+    def __init__(self, model="text-embedding-3-small"):
+        if "embed-" in model.lower():
+            self.is_cohere_model = True
+        else:
+            self.is_cohere_model = False
         self._vectorizer = partial(aembedding, model=model, caching=True)
         self._index = None
         self._data = None
@@ -183,9 +201,12 @@ class DenseSearchEngine:
         """
         self._data = data
         docs = [doc["text"] for doc in data]
-        embeddings = await batch_embed(
-            self._vectorizer, docs, input_type="search_document"
-        )
+        if self.is_cohere_model:
+            embeddings = await batch_embed(
+                self._vectorizer, docs, input_type="search_document"
+            )
+        else:
+            embeddings = await batch_embed(self._vectorizer, docs, dimensions=512)
         self._index = np.array(embeddings)
         return self
 
@@ -200,11 +221,18 @@ class DenseSearchEngine:
         Returns:
             list: A list of dictionaries containing the source, text, and score of the top-k results.
         """
-        query_embedding = await batch_embed(
-            self._vectorizer,
-            [query],
-            input_type="search_query",
-        )
+        if self.is_cohere_model:
+            query_embedding = await batch_embed(
+                self._vectorizer,
+                [query],
+                input_type="search_query",
+            )
+        else:
+            query_embedding = await batch_embed(
+                self._vectorizer,
+                [query],
+                dimensions=512,
+            )
         cosine_distances = cdist(query_embedding, self._index, metric="cosine")[0]
         top_k_indices = cosine_distances.argsort()[:top_k]
         output = []
@@ -218,13 +246,20 @@ class DenseSearchEngine:
         return output
 
 
-def make_batches_for_db(vectorizer, data, batch_size=50):
+def make_batches_for_db(
+    vectorizer, data, batch_size=50, is_cohere_model=False, dimensions=512
+):
     for i in range(0, len(data), batch_size):
         batch_docs = data[i : i + batch_size]
         batch_texts = [doc["text"] for doc in batch_docs]
-        embeddings = asyncio.run(
-            batch_embed(vectorizer, batch_texts, input_type="search_document")
-        )
+        if is_cohere_model:
+            embeddings = asyncio.run(
+                batch_embed(vectorizer, batch_texts, input_type="search_document")
+            )
+        else:
+            embeddings = asyncio.run(
+                batch_embed(vectorizer, batch_texts, dimensions=dimensions)
+            )
         yield [
             {"vector": embedding, **doc}
             for embedding, doc in zip(embeddings, batch_docs)
@@ -235,8 +270,12 @@ class VectorStoreSearchEngine:
     def __init__(
         self,
         uri="data/docsdb",
-        embedding_model="embed-english-light-v3.0",
+        embedding_model="text-embedding-3-small",
     ):
+        if "embed-" in embedding_model.lower():
+            self.is_cohere_model = True
+        else:
+            self.is_cohere_model = False
         self._vectorizer = partial(aembedding, model=embedding_model, caching=True)
         self._uri = uri
         self._db = None
@@ -246,7 +285,9 @@ class VectorStoreSearchEngine:
         self._db = await lancedb.connect_async(self._uri)
         self._table = await self._db.create_table(
             "docs",
-            data=make_batches_for_db(self._vectorizer, data),
+            data=make_batches_for_db(
+                self._vectorizer, data, is_cohere_model=self.is_cohere_model
+            ),
             mode="overwrite",
             exist_ok=True,
         )
@@ -259,11 +300,18 @@ class VectorStoreSearchEngine:
         return self
 
     async def search(self, query, top_k=5, filters=None):
-        query_embedding = await batch_embed(
-            self._vectorizer,
-            [query],
-            input_type="search_query",
-        )
+        if self.is_cohere_model:
+            query_embedding = await batch_embed(
+                self._vectorizer,
+                [query],
+                input_type="search_query",
+            )
+        else:
+            query_embedding = await batch_embed(
+                self._vectorizer,
+                [query],
+                dimensions=512,
+            )
         if filters is not None:
             results = (
                 await self._table.query()
@@ -296,19 +344,35 @@ class Retriever(weave.Model):
 
 
 class Reranker(weave.Model):
-    model: str = "cohere/rerank-english-v3.0"
+    model: str = "gpt-4o-mini"
+    _reranker: Any = PrivateAttr()
+
+    def model_post_init(self, _context) -> None:
+        self._reranker = AnsReranker(
+            model_name=self.model,
+            model_type="rankgpt",
+            api_key=os.getenv("OPENAI_API_KEY"),
+        )
 
     @weave.op
     async def invoke(self, query: str, documents: list[dict[str, Any]], top_n: int = 5):
-        reranked_docs = await arerank(
-            model=self.model, query=query, documents=documents, top_n=top_n
-        )
-        output_docs = []
-        for result in reranked_docs["results"]:
-            reranked_doc = documents[result["index"]]
-            reranked_doc["score"] = round(float(result["relevance_score"]), 4)
-            output_docs.append(reranked_doc)
-        return output_docs
+        try:
+            reranked_docs = await self._reranker.rank_async(
+                query=query, docs=[doc["text"] for doc in documents]
+            )
+            reranked_docs = reranked_docs.top_k(top_n)
+            output_docs = []
+            for result in reranked_docs:
+                reranked_doc = documents[result.document.doc_id]
+                if result.score is not None:
+                    reranked_doc["score"] = round(float(result.score), 4)
+                output_docs.append(reranked_doc)
+            return output_docs
+        except Exception as e:
+            if len(documents) < top_n:
+                return documents
+            else:
+                return documents[:top_n]
 
 
 class RetrieverWithReranker(Retriever):

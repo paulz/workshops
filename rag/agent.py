@@ -13,7 +13,7 @@ class WandbAgent(weave.Model):
 
     # Load the system prompt from a file
     system_prompt: str = open("prompts/agent.txt", "r").read()
-    model: str = "command-r-08-2024"
+    model: str = "gpt-4o"
     temperature: float = 0.1
     tools: list[dict[str, Any]] = TOOL_SCHEMAS
 
@@ -55,9 +55,14 @@ class WandbAgent(weave.Model):
             ).run()
             tool_result = json.dumps(tool_result)
             messages.append(
-                {"role": "tool", "tool_call_id": tc.id, "content": tool_result}
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "name": tc.function.name,
+                    "content": tool_result,
+                }
             )
-            return messages
+        return messages
 
     @weave.op
     async def run_agent(self, query, messages=None):

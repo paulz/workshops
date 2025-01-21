@@ -71,20 +71,20 @@ def convert_contents_to_text(contents: str) -> str:
     return soup.get_text()
 
 
-def tokenize_text(text: str, model: str = "command-r") -> list[str]:
+def tokenize_text(text: str, model: str = "gpt-4o-mini") -> list[str]:
     encoded = encode(model=model, text=text)
     decoded = [decode(model=model, tokens=[enc]) for enc in encoded]
     return decoded
 
 
-def chunk_simple(content, chunk_size=300):
+def chunk_simple(content, chunk_size=300, model="gpt-4o-mini"):
     sentences = sent_tokenize(content)
     chunks = []
     current_chunk = []
     current_length = 0
 
     for sentence in sentences:
-        words = tokenize_text(sentence)
+        words = tokenize_text(sentence, model=model)
 
         # Check if adding this sentence would exceed chunk_size
         if current_length + len(words) > chunk_size and current_chunk:
@@ -658,7 +658,7 @@ def chunk_dataset(ds, chunk_size=500):
 
 @weave.op
 async def run_llm(
-    model: str = "command-r-08-2024",
+    model: str = "gpt-4o-mini",
     temperature: float = 0.1,
     messages: list[dict[str, Any]] = None,
 ) -> str:

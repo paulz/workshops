@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from typing import Any
+from typing import Any, Literal
 
 import weave
 from pydantic import BaseModel, Field, PrivateAttr
@@ -54,8 +54,15 @@ class SearchDocumentation(BaseModel):
         return {"results": "\n\n".join([format_doc(result) for result in results])}
 
 
+file_extensions = {
+    "py": "python",
+    "ipynb": "notebook",
+    "md": "markdown",
+}
+
+
 class SearchCode(BaseModel):
-    """Searches code examples and tutorials on using Weights & Biases."""
+    """Searches code examples and tutorials on using Weights & Biases. Remember to specify the file type if you want to search for a specific `file_type`."""
 
     search_query: str = Field(
         ...,
@@ -63,6 +70,10 @@ class SearchCode(BaseModel):
     )
     num_results: int = Field(10, description="The number of results to return")
     docs_db: str = "data/docsdb"
+    file_types: list[Literal["py", "ipynb", "md"]] = Field(
+        ...,
+        description="The file types to search for. Defaults to only py files. Allowed values are `py`, `ipynb`, and `md`.",
+    )
     _retriever: Any = PrivateAttr()
 
     def model_post_init(self, _context: Any) -> None:
@@ -75,7 +86,12 @@ class SearchCode(BaseModel):
 
     @weave.op
     async def run(self) -> dict[str, str]:
-        filters = "file_type IN ('python', 'notebook')"
+
+        filters = "file_type IN ({})".format(
+            ", ".join(
+                f"'{file_extensions[file_type]}'" for file_type in self.file_types
+            )
+        )
         results = await self._retriever.invoke(
             self.search_query,
             top_k=self.num_results * 2,
@@ -88,7 +104,7 @@ class SearchCode(BaseModel):
 tools = [
     SearchInternet(search_query=""),
     SearchDocumentation(search_query="", num_results=5),
-    SearchCode(search_query="", num_results=5),
+    SearchCode(search_query="", num_results=5, file_types=["py", "ipynb", "md"]),
 ]
 TOOL_SCHEMAS = [
     {

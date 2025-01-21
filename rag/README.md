@@ -32,25 +32,26 @@ The notebook covers:
 
 ## Setup Requirements
 
-1. Free Cohere API key (can be obtained [here](https://dashboard.cohere.com/billing?tab=payment&creditCode=WANDB-Y01D-JK8B))
+1. OpenAI API key
 2. Tavily API key (sign up at [Tavily](https://app.tavily.com/home))
 3. Python environment with required packages (installed via `uv`)
-
+4. W&B API key (sign up at [W&B](https://app.wandb.ai/login?signup=true))
 ## Installation
 
 ```bash
-git clone https://github.com/parambharar/workshops.git
-cd workshops/rag
-pip install uv
-uv pip install -e .
+!git clone https://github.com/parambharar/workshops.git
+!cd workshops/rag
+!pip install uv
+!uv sync
 ```
 
 ## Environment Setup
 
 Create an `.env` file with:
 ```
-COHERE_API_KEY="YOUR_COHERE_API_KEY"
+OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 TAVILY_API_KEY="YOUR_TAVILY_API_KEY"
+WANDB_PROJECT="rag-workshop-iiit-blr"
 ```
 
 ## Key Features

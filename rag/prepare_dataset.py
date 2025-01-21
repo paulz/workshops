@@ -5,18 +5,21 @@ import sys
 import uuid
 import zipfile
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 import urllib3.exceptions
-import wandb
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from crawl4ai.models import CrawlResult
 from lxml import etree
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+import wandb
 from utils import mdify
+
+WANDB_PROJECT = os.environ.get("WANDB_PROJECT", "rag-workshop")
 
 
 async def get_urls(sitemap_url: str) -> list[str]:
@@ -410,7 +413,7 @@ async def load_code_repos():
 
 
 async def main():
-    run = wandb.init(project="rag-workshop", job_type="build_dataset")
+    run = wandb.init(project=WANDB_PROJECT, job_type="build_dataset")
     wandb_docs = await crawl_wandb_docs(max_concurrent=5)
     weave_docs = await crawl_weave_docs(max_concurrent=5)
     code_documents = await load_code_repos()

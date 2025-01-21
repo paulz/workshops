@@ -6,9 +6,9 @@ import weave
 from utils import format_doc
 
 
-class SimpleRAGPipeline(weave.Model):
+class RAGPipeline(weave.Model):
     """
-    SimpleRAGPipeline is a class that implements a simple Retrieval-Augmented Generation (RAG) pipeline.
+    A Retrieval-Augmented Generation (RAG) pipeline.
 
     Attributes:
         retriever (weave.Model): The model used for retrieving relevant documents.
@@ -38,6 +38,10 @@ class SimpleRAGPipeline(weave.Model):
         docs_data = [{"document": format_doc(item)} for item in docs]
         response = await self.generator.invoke(query=query, documents=docs_data)
         return {"answer": response["choices"][0]["message"]["content"], "context": docs}
+
+
+class SimpleRAGPipeline(RAGPipeline):
+    pass
 
 
 INTENT_ACTIONS = {
@@ -70,7 +74,7 @@ INTENT_ACTIONS = {
 }
 
 
-class QueryEnhancedRAGPipeline(weave.Model):
+class QueryEnhancedRAGPipeline(RAGPipeline):
     """
     A Query-Enhanced Retrieval-Augmented Generation (RAG) pipeline.
 
@@ -82,9 +86,6 @@ class QueryEnhancedRAGPipeline(weave.Model):
     """
 
     query_enhancer: weave.Model = None
-    retriever: weave.Model = None
-    response_generator: weave.Model = None
-    top_k: int = 5
 
     @weave.op
     async def invoke(self, query: str):
@@ -133,18 +134,18 @@ class QueryEnhancedRAGPipeline(weave.Model):
                 if doc["chunk_id"] not in deduped:
                     deduped[doc["chunk_id"]] = doc
         contexts = list(deduped.values())
-
-        reranked_contexts = await self.retriever.reranker.invoke(
-            query=user_query, documents=contexts, top_n=self.top_k
-        )
+        try:
+            reranked_contexts = await self.retriever.reranker.invoke(
+                query=user_query, documents=contexts, top_n=self.top_k
+            )
+        except Exception:
+            reranked_contexts = contexts[: self.top_k]
 
         intent_action = "\n".join(
             [INTENT_ACTIONS[intent["intent"]] for intent in intents]
         )
         docs_data = [{"document": format_doc(item)} for item in reranked_contexts]
-        response = await self.response_generator.invoke(
-            user_query, docs_data, intent_action
-        )
+        response = await self.generator.invoke(user_query, docs_data, intent_action)
 
         return {
             "answer": response["choices"][0]["message"]["content"],

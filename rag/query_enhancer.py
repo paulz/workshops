@@ -53,7 +53,7 @@ class IntentPrediction(BaseModel):
 class QueryEnhancer(weave.Model):
     """A class for enhancing user queries using the Cohere API."""
 
-    model: str = "command-r-08-2024"
+    model: str = "gpt-4o-mini"
     temperature: float = 0.5
 
     @weave.op
@@ -98,13 +98,22 @@ class QueryEnhancer(weave.Model):
         client = instructor.from_litellm(acompletion)
         prompt = open("prompts/intent_prediction.txt", "r").read()
         prompt += f"\n<question>\n{question}\n</question>"
-        intents = await client.chat.completions.create(
-            model=self.model,
-            temperature=self.temperature,
-            messages=[{"role": "user", "content": prompt}],
-            force_single_step=True,
-            response_model=IntentPrediction,
-        )
+        if "command" in self.model.lower():
+            intents = await client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": prompt}],
+                response_model=IntentPrediction,
+                force_single_step=True,
+            )
+        else:
+            intents = await client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": prompt}],
+                response_model=IntentPrediction,
+            )
+
         return intents.model_dump(mode="json")["intents"]
 
     @weave.op
