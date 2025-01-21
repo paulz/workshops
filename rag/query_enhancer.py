@@ -57,6 +57,9 @@ class IntentPrediction(BaseModel):
 class QueryEnhancer(weave.Model):
     """A class for enhancing user queries using the Cohere API."""
 
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.5
+
     @weave.op
     async def generate_search_queries(self, query: str) -> list[str]:
         """
@@ -72,7 +75,8 @@ class QueryEnhancer(weave.Model):
         prompt = open("prompts/search_query.txt", "r").read()
         prompt += f"\n<question>\n{query}\n</question>\n"
         search_queries = await client.chat.completions.create(
-            model="command-r",
+            model=self.model,
+            temperature=self.temperature,
             messages=[
                 {"role": "user", "content": prompt},
             ],
@@ -98,12 +102,22 @@ class QueryEnhancer(weave.Model):
         client = instructor.from_litellm(acompletion)
         prompt = open("prompts/intent_prediction.txt", "r").read()
         prompt += f"\n<question>\n{question}\n</question>"
-        intents = await client.chat.completions.create(
-            model="command-r",
-            messages=[{"role": "user", "content": prompt}],
-            force_single_step=True,
-            response_model=IntentPrediction,
-        )
+        if "command" in self.model.lower():
+            intents = await client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": prompt}],
+                response_model=IntentPrediction,
+                force_single_step=True,
+            )
+        else:
+            intents = await client.chat.completions.create(
+                model=self.model,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": prompt}],
+                response_model=IntentPrediction,
+            )
+
         return intents.model_dump(mode="json")["intents"]
 
     @weave.op

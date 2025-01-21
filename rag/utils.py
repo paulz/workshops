@@ -2,12 +2,14 @@ import json
 import pathlib
 from copy import deepcopy
 from hashlib import md5
+from typing import Any
 
 import frontmatter
 import markdown
+import weave
 from bs4 import BeautifulSoup
 from IPython.display import Markdown, display
-from litellm import decode, encode
+from litellm import acompletion, decode, encode
 from markdownify import markdownify
 from nbconvert import MarkdownExporter as NBMarkdownExporter
 from nbformat import reads as readnb
@@ -17,7 +19,7 @@ from traitlets.config import Config as NBConfig
 from tree_sitter_languages import get_parser
 
 
-def mdify(html):
+def mdify(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     for nav in soup.find_all("nav"):
         nav.decompose()
@@ -69,20 +71,20 @@ def convert_contents_to_text(contents: str) -> str:
     return soup.get_text()
 
 
-def tokenize_text(text: str, model: str = "command-r") -> list[str]:
+def tokenize_text(text: str, model: str = "gpt-4o-mini") -> list[str]:
     encoded = encode(model=model, text=text)
     decoded = [decode(model=model, tokens=[enc]) for enc in encoded]
     return decoded
 
 
-def chunk_simple(content, chunk_size=300):
+def chunk_simple(content, chunk_size=300, model="gpt-4o-mini"):
     sentences = sent_tokenize(content)
     chunks = []
     current_chunk = []
     current_length = 0
 
     for sentence in sentences:
-        words = tokenize_text(sentence)
+        words = tokenize_text(sentence, model=model)
 
         # Check if adding this sentence would exceed chunk_size
         if current_length + len(words) > chunk_size and current_chunk:
@@ -652,3 +654,15 @@ def chunk_dataset(ds, chunk_size=500):
                 doc_chunk["doc_id"] = doc_id
                 all_chunks.append(doc_chunk)
     return all_chunks
+
+
+@weave.op
+async def run_llm(
+    model: str = "gpt-4o-mini",
+    temperature: float = 0.1,
+    messages: list[dict[str, Any]] = None,
+) -> str:
+    response = await acompletion(
+        model=model, temperature=temperature, messages=messages
+    )
+    return response.choices[0].message.content

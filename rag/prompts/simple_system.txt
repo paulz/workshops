@@ -1,0 +1,7 @@
+Answer the following question about Weights & Biases based on the provided product documentation.
+Note: not all documents may be relevant to the query.
+
+## Documents
+
+{documents}
+

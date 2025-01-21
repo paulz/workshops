@@ -5,3 +5,9 @@ We have also identified the following intents based on the user's query:
 Tailor your answer to address the above intents. 
 Provide a helpful and complete answer based only on the provided documents.
 When referencing specific financial data or statements, always cite the source document.
+Note: Not all documents may be relevant to the user's question.
+
+## Documents
+
+{documents}
+

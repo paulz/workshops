@@ -1,11 +1,12 @@
 import asyncio
 import json
 import os
-from typing import Any
+from typing import Any, Literal
 
 import weave
 from pydantic import BaseModel, Field, PrivateAttr
 from tavily import AsyncTavilyClient
+
 from utils import format_doc
 
 
@@ -39,7 +40,7 @@ class SearchDocumentation(BaseModel):
     _retriever: Any = PrivateAttr()
 
     def model_post_init(self, _context: Any) -> None:
-        from retriever import VectorStoreSearchEngine, RetrieverWithReranker
+        from retriever import RetrieverWithReranker, VectorStoreSearchEngine
 
         search_engine = VectorStoreSearchEngine(
             index_name=self.docs_db,
