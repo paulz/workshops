@@ -19,6 +19,7 @@ dependencies = [
     "nbformat>=5.10.4",
     "pymdown-extensions>=10.14",
     "pystemmer>=2.2.0.3",
+    "python-dotenv>=1.0.1",
     "python-frontmatter>=1.1.0",
     "rerankers[api,gpt,transformers]>=0.6.1",
     "rouge>=1.0.1",
