@@ -1,6 +1,6 @@
 # From Simple to Agentic RAG Workshop
 
-This workshop demonstrates how to build and evolve a Retrieval-Augmented Generation (RAG) system from a simple implementation to a more sophisticated agentic system. The workshop uses the Weights & Biases documentation as a case study.
+This workshop demonstrates how to build and evolve a Retrieval-Augmented Generation (RAG) system from a simple implementation to a more sophisticated agentic system. The workshop uses SEC filings as a case study.
 
 ## Workshop Overview
 
@@ -25,17 +25,17 @@ The notebook covers:
 - Reranking for better precision
 
 ### Advanced Techniques
-- Structured chunking for better context preservation
 - Vector store integration for scalability
 - Query enhancement with intent classification
 - Tool-augmented RAG with internet search capabilities
 
 ## Setup Requirements
 
-1. OpenAI API key
-2. Tavily API key (sign up at [Tavily](https://app.tavily.com/home))
-3. Python environment with required packages (installed via `uv`)
-4. W&B API key (sign up at [W&B](https://app.wandb.ai/login?signup=true))
+1. Pinecone API key (sign up at [Pinecone](https://app.pinecone.io/))
+2. OpenAI API key
+3. Tavily API key (sign up at [Tavily](https://app.tavily.com/home))
+4. Python environment with required packages (installed via `uv`)
+5. W&B API key (sign up at [W&B](https://app.wandb.ai/login?signup=true))
 ## Installation
 
 ```bash
@@ -49,6 +49,7 @@ The notebook covers:
 
 Create an `.env` file with:
 ```
+PINECONE_API_KEY="YOUR_PINECONE_API_KEY"
 OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 TAVILY_API_KEY="YOUR_TAVILY_API_KEY"
 WANDB_PROJECT="rag-workshop-iiit-blr"
@@ -63,9 +64,10 @@ WANDB_PROJECT="rag-workshop-iiit-blr"
 
 ## Resources Used
 
-- W&B Documentation as source data
+- SEC filings as source data
 - Cohere for embeddings and reranking
 - Tavily for internet search
+- Pinecone for vector search
 - W&B Weave for experiment tracking
 
 ## Workshop Flow
@@ -73,8 +75,7 @@ WANDB_PROJECT="rag-workshop-iiit-blr"
 1. Start with a simple RAG implementation
 2. Add evaluation metrics
 3. Improve retrieval with different algorithms
-4. Implement structured chunking
-5. Add query enhancement
-6. Build an agentic system with tool use
+4. Add query enhancement
+5. Build an agentic system with tool use
 
 This workshop is designed to provide a hands-on understanding of RAG systems and their evolution from simple to more sophisticated implementations.
