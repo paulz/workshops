@@ -285,7 +285,7 @@ class RetrievalScorer(Scorer):
         contexts: list[dict[str, Any]],
     ) -> dict[str, Any]:
 
-        output_sources = [{"source": doc["uri"]} for doc in output]
+        output_sources = [{"source": doc["metadata"]["source"]} for doc in output]
         output_texts = [doc["text"] for doc in output]
         return {
             "hit_rate": compute_hit_rate(output_sources, contexts),

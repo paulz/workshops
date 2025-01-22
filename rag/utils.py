@@ -3,6 +3,7 @@ import pathlib
 from copy import deepcopy
 from hashlib import md5
 from typing import Any
+import re
 
 import frontmatter
 import markdown
@@ -40,35 +41,55 @@ def mdify(html: str) -> str:
     return markdownify(combined_html, heading_style="ATX", wrap=True)
 
 
-def convert_contents_to_text(contents: str) -> str:
+def convert_contents_to_text(contents: str, file_type: str = "pdf") -> str:
     """
-    Converts the given markdown content to plain text.
+    Converts the given content to plain text, with special handling for PDFs.
 
     Args:
-        contents: A string containing the markdown content.
+        contents: A string containing the content
+        file_type: Type of content ("markdown", "pdf", etc.)
 
     Returns:
-        A string containing the plain text extracted from the markdown content.
+        A string containing the plain text extracted from the content
     """
-    _, content = frontmatter.parse(contents)
-    markdown_document = markdown.markdown(
-        content,
-        extensions=[
-            "toc",
-            "pymdownx.extra",
-            "pymdownx.blocks.admonition",
-            "pymdownx.magiclink",
-            "pymdownx.blocks.tab",
-            "pymdownx.pathconverter",
-            "pymdownx.saneheaders",
-            "pymdownx.striphtml",
-            "pymdownx.highlight",
-            "pymdownx.pathconverter",
-            "pymdownx.escapeall",
-        ],
-    )
-    soup = BeautifulSoup(markdown_document, "html.parser")
-    return soup.get_text()
+    if file_type == "pdf":
+        # Clean up PDF-specific artifacts
+        text = contents
+        
+        # Remove page numbers and headers
+        text = re.sub(r'\n.*?\| Q\d 20\d{2} Form 10-Q \|.*?\n', '\n', text)
+        
+        # Standardize whitespace in financial tables
+        text = re.sub(r'\$\s+', '$ ', text)  # Standardize spacing after dollar signs
+        text = re.sub(r'(\d),(\d)', r'\1\2', text)  # Remove commas in numbers
+        
+        # Clean up common PDF artifacts
+        text = re.sub(r'', '', text)  # Remove invalid characters
+        text = re.sub(r'\s{2,}', ' ', text)  # Collapse multiple spaces
+        text = re.sub(r'\n{3,}', '\n\n', text)  # Collapse multiple newlines
+        
+        return text.strip()
+    else:
+        # Original markdown handling
+        _, content = frontmatter.parse(contents)
+        markdown_document = markdown.markdown(
+            content,
+            extensions=[
+                "toc",
+                "pymdownx.extra",
+                "pymdownx.blocks.admonition",
+                "pymdownx.magiclink",
+                "pymdownx.blocks.tab",
+                "pymdownx.pathconverter",
+                "pymdownx.saneheaders",
+                "pymdownx.striphtml",
+                "pymdownx.highlight",
+                "pymdownx.pathconverter",
+                "pymdownx.escapeall",
+            ],
+        )
+        soup = BeautifulSoup(markdown_document, "html.parser")
+        return soup.get_text()
 
 
 def tokenize_text(text: str, model: str = "gpt-4o-mini") -> list[str]:
@@ -588,7 +609,11 @@ def format_doc(doc, with_ids=False, max_length=None):
                     continue
             doc_str += f"- {k}: {v}\n"
     doc_str += "\n\n"
-    if doc["file_type"] == "python":
+    
+    # Check if file_type is directly in doc or in metadata
+    file_type = doc.get("file_type") or doc.get("metadata", {}).get("file_type")
+    
+    if file_type == "python":
         if max_length:
             doc_str += doc["text"][:max_length]
         else:
@@ -622,36 +647,122 @@ def load_dataset(docs_root):
     return docs
 
 
+def chunk_pdf(content: str, chunk_size: int = 500) -> list[str]:
+    """
+    Chunks PDF content more intelligently by respecting table boundaries and financial statements.
+    
+    Args:
+        content: Raw text content extracted from PDF
+        chunk_size: Target size for chunks in tokens
+        
+    Returns:
+        List of text chunks
+    """
+    # Split into sections based on common financial document headers
+    section_markers = [
+        "CONSOLIDATED STATEMENTS OF",
+        "NOTES TO",
+        "PART ",
+        "Item ",
+        "TABLE OF CONTENTS"
+    ]
+    
+    # First split by major sections
+    sections = []
+    current_section = []
+    
+    for line in content.splitlines():
+        # Check if line starts new section
+        is_new_section = any(line.strip().upper().startswith(marker) for marker in section_markers)
+        
+        if is_new_section and current_section:
+            sections.append("\n".join(current_section))
+            current_section = [line]
+        else:
+            current_section.append(line)
+    
+    if current_section:
+        sections.append("\n".join(current_section))
+
+    # Further chunk each section while preserving table structure
+    chunks = []
+    for section in sections:
+        # Detect if section contains tabular data
+        has_table = bool(re.search(r'\$\s*[\d,]+', section))
+        
+        if has_table:
+            # Keep table sections together
+            chunks.append(section)
+        else:
+            # Use sentence-based chunking for narrative text
+            sentences = sent_tokenize(section) 
+            current_chunk = []
+            current_length = 0
+            
+            for sentence in sentences:
+                sentence_tokens = tokenize_text(sentence)
+                if current_length + len(sentence_tokens) > chunk_size and current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                    current_chunk = [sentence]
+                    current_length = len(sentence_tokens)
+                else:
+                    current_chunk.append(sentence)
+                    current_length += len(sentence_tokens)
+            
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+
+    return chunks
+
+
 def chunk_dataset(ds, chunk_size=500):
     all_chunks = []
     for doc in ds:
         doc_id = make_id(doc["content"])
         if doc["file_type"] == "python":
             chunks = chunk_source_code(doc["content"], chunk_size=chunk_size)
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
                 doc_chunk = deepcopy(doc)
+                del doc_chunk["content"]
                 doc_chunk["chunk"] = chunk
                 doc_chunk["text"] = chunk
                 doc_chunk["chunk_id"] = make_id(chunk)
                 doc_chunk["doc_id"] = doc_id
+                doc_chunk["chunk_number"] = i
                 all_chunks.append(doc_chunk)
         elif doc["file_type"] == "notebook":
             chunks = chunk_notebook(doc["content"], chunk_size=chunk_size)
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
                 doc_chunk = deepcopy(doc)
+                del doc_chunk["content"]
                 doc_chunk["chunk"] = chunk
-                doc_chunk["text"] = convert_contents_to_text(chunk)
+                doc_chunk["text"] = chunk
                 doc_chunk["chunk_id"] = make_id(chunk)
                 doc_chunk["doc_id"] = doc_id
+                doc_chunk["chunk_number"] = i
+                all_chunks.append(doc_chunk)
+        elif doc["file_type"] == "pdf":
+            # Use PDF-specific chunking
+            chunks = chunk_pdf(doc["content"], chunk_size=chunk_size)
+            for i, chunk in enumerate(chunks):
+                doc_chunk = deepcopy(doc)
+                del doc_chunk["content"]
+                doc_chunk["chunk"] = chunk
+                doc_chunk["text"] = convert_contents_to_text(chunk, file_type="pdf")
+                doc_chunk["chunk_id"] = make_id(chunk)
+                doc_chunk["doc_id"] = doc_id
+                doc_chunk["chunk_number"] = i
                 all_chunks.append(doc_chunk)
         else:
             chunks = chunk_markdown(doc["content"], chunk_size=chunk_size)
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
                 doc_chunk = deepcopy(doc)
+                del doc_chunk["content"]
                 doc_chunk["chunk"] = chunk
-                doc_chunk["text"] = convert_contents_to_text(chunk)
+                doc_chunk["text"] = convert_contents_to_text(chunk, file_type="markdown")
                 doc_chunk["chunk_id"] = make_id(chunk)
                 doc_chunk["doc_id"] = doc_id
+                doc_chunk["chunk_number"] = i
                 all_chunks.append(doc_chunk)
     return all_chunks
 
@@ -666,3 +777,30 @@ async def run_llm(
         model=model, temperature=temperature, messages=messages
     )
     return response.choices[0].message.content
+
+def prepare_documents_for_pinecone(documents):
+    """
+    Process document chunks into a format suitable for Pinecone indexing.
+    
+    Args:
+        documents: List of document chunks with nested metadata
+        
+    Returns:
+        List of documents with flattened structure and simple metadata types
+    """
+    processed_docs = []
+    for doc in documents:
+        # Only include metadata fields that are strings, numbers, booleans, or lists of strings
+        processed_doc = {
+            "chunk": doc['chunk'],
+            "text": doc['text'],
+            "source": doc['metadata']['source'],
+            "file_type": doc['metadata']['file_type'],
+            "chunk_number": float(doc['chunk_number']),  # Convert to number
+            "chunk_id": doc['chunk_id'],
+            "doc_id": doc['doc_id']
+        }
+        processed_docs.append(processed_doc)
+    return processed_docs
+
+def

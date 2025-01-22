@@ -3,10 +3,11 @@ import os
 from functools import partial
 from threading import Lock
 from typing import Any
+import time
 
 import Stemmer
-import pinecone
 from pinecone.grpc import PineconeGRPC as Pinecone
+from pinecone import ServerlessSpec
 
 import bm25s
 import litellm
@@ -154,17 +155,46 @@ class BM25SearchEngine:
         return output
 
 
-async def batch_embed(pc, docs, input_type="search_document", batch_size=50):
+def batch_embed(pc, docs, input_type="passage", batch_size=25):
+    print(f"\n[batch_embed] Input docs length: {len(docs)}, type: {type(docs)}")
     all_embeddings = []
+    
     for i in range(0, len(docs), batch_size):
-        batch = docs[i : i + batch_size]
-        embeddings = await pc.inference.embed(
-            model="multilingual-e5-large",
-            inputs=batch,
-            parameters={"input_type": input_type, "truncate": "END"}
-        )
-        all_embeddings.append(embeddings)
-    return np.array(all_embeddings)
+        try:
+            batch = docs[i : i + batch_size]
+            print(f"[batch_embed] Processing batch {i//batch_size + 1}, size: {len(batch)}")
+            
+            embeddings = pc.inference.embed(
+                model="multilingual-e5-large",
+                inputs=batch,
+                parameters={"input_type": input_type, "truncate": "END"}
+            )
+            print(f"[batch_embed] Embeddings type: {type(embeddings)}, length: {len(embeddings)}")
+            
+            # Convert EmbeddingsList to list of values
+            embedding_values = [emb.values for emb in embeddings]
+            if len(embedding_values) > 0:
+                print(f"[batch_embed] First embedding type: {type(embedding_values[0])}, length: {len(embedding_values[0])}")
+            
+            # Extend with the raw values
+            all_embeddings.extend(embedding_values)
+            
+            # Add delay between batches to respect rate limits
+            time.sleep(0.5)  # 500ms delay between batches
+            
+        except Exception as e:
+            if "rate limit exceeded" in str(e).lower():
+                print(f"[batch_embed] Rate limit hit, waiting 60 seconds before retrying...")
+                time.sleep(60)  # Wait 60 seconds if we hit the rate limit
+                # Retry this batch
+                i -= batch_size
+                continue
+            else:
+                raise e
+    
+    stacked = np.stack(all_embeddings)
+    print(f"[batch_embed] Final output shape: {stacked.shape}, type: {type(stacked)}")
+    return stacked
 
 
 class DenseSearchEngine:
@@ -191,12 +221,15 @@ class DenseSearchEngine:
             data (list): A list of documents to be indexed. Each document should be a dictionary
                          containing a key 'cleaned_content' with the text to be indexed.
         """
+        print(f"\n[fit] Input data length: {len(data)}")
         self._data = data
         docs = [doc["text"] for doc in data]
-        embeddings = await batch_embed(
-            self._pc, docs, input_type="search_document"
+        print(f"[fit] Extracting embeddings for {len(docs)} documents")
+        embeddings = batch_embed(
+            self._pc, docs, input_type="passage"
         )
-        self._index = np.array(embeddings)
+        print(f"[fit] Embeddings shape: {embeddings.shape}")
+        self._index = embeddings
         return self
 
     async def search(self, query, top_k=5, **kwargs):
@@ -210,18 +243,29 @@ class DenseSearchEngine:
         Returns:
             list: A list of dictionaries containing the source, text, and score of the top-k results.
         """
-        query_embedding = await batch_embed(
+        print(f"\n[search] Query: '{query[:50]}...' (truncated)")
+        print(f"[search] Index shape: {self._index.shape}")
+        
+        query_embedding = batch_embed(
             self._pc,
             [query],
-            input_type="search_query",
+            input_type="query",
         )
+        print(f"[search] Query embedding shape: {query_embedding.shape}")
+        
         cosine_distances = cdist(query_embedding, self._index, metric="cosine")[0]
+        print(f"[search] Cosine distances shape: {cosine_distances.shape}")
+        
         top_k_indices = cosine_distances.argsort()[:top_k]
+        print(f"[search] Top {top_k} indices: {top_k_indices}")
+        
         output = []
         for idx in top_k_indices:
+            score = round(float(1 - cosine_distances[idx]), 4)
+            print(f"[search] Document {idx} score: {score}")
             output.append(
                 {
-                    "score": round(float(1 - cosine_distances[idx]), 4),
+                    "score": score,
                     **self._data[idx],
                 }
             )
@@ -251,33 +295,38 @@ def make_batches_for_db(
 class VectorStoreSearchEngine:
     def __init__(
         self,
-        index_name="docs",
+        index_name="finance-docs",
         embedding_model="multilingual-e5-large",
+        dimension=1024,
         environment="gcp-starter"
     ):
         self._pc = Pinecone()
         self._model = embedding_model
         self._index_name = index_name
         self._environment = environment
+        self._dimension = dimension
         self._index = None
 
     async def fit(self, data):
-        pinecone.init(environment=self._environment)
-        
-        if self._index_name not in pinecone.list_indexes():
-            pinecone.create_index(
+        if self._index_name not in self._pc.list_indexes().names():
+            self._pc.create_index(
                 name=self._index_name,
-                dimension=384,
-                metric="cosine"
+                dimension=self._dimension,
+                metric="cosine",
+                spec=ServerlessSpec(
+                    cloud="aws",
+                    region="us-east-1"
+                ),
+                deletion_protection="disabled"
             )
         
-        self._index = pinecone.Index(self._index_name)
+        self._index = self._pc.Index(self._index_name)
         
         batch_size = 50
         for i in range(0, len(data), batch_size):
             batch = data[i:i + batch_size]
             texts = [doc["text"] for doc in batch]
-            embeddings = await batch_embed(self._pc, texts, input_type="search_document")
+            embeddings = batch_embed(self._pc, texts, input_type="passage")
             
             vectors = [
                 (str(i + idx), embedding.tolist(), {k: v for k, v in doc.items() if k != "vector"})
@@ -288,15 +337,14 @@ class VectorStoreSearchEngine:
         return self
 
     async def load(self):
-        pinecone.init(environment=self._environment)
-        self._index = pinecone.Index(self._index_name)
+        self._index = self._pc.Index(self._index_name)
         return self
 
     async def search(self, query, top_k=5, filters=None):
-        query_embedding = await batch_embed(
+        query_embedding = batch_embed(
             self._pc,
             [query],
-            input_type="search_query",
+            input_type="query",
         )
         
         query_results = self._index.query(
@@ -331,7 +379,11 @@ class Reranker(weave.Model):
         pc = Pinecone()
         texts = [doc["text"] for doc in documents]
         
-        reranked = await pc.inference.rerank(
+        print(f"\n[reranker] Reranking {len(texts)} documents")
+        print(f"[reranker] Query: '{query[:50]}...' (truncated)")
+        print(f"[reranker] First document: '{texts[0][:50]}...' (truncated)")
+        
+        reranked = pc.inference.rerank(
             model=self.model,
             query=query,
             documents=[{"text": text} for text in texts],
@@ -340,8 +392,11 @@ class Reranker(weave.Model):
             parameters={"truncate": "END"}
         )
         
+        print(f"[reranker] Rerank result type: {type(reranked)}")
+        print(f"[reranker] Rerank result: {reranked}")
+        
         output_docs = []
-        for result in reranked:
+        for result in reranked.data:
             doc = documents[result.index]
             doc["score"] = round(float(result.score), 4)
             output_docs.append(doc)

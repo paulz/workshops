@@ -20,7 +20,7 @@ class PDFProcessor:
         self.MAX_BACKOFF = 3600
         self.MAX_RETRIES = 5
         self.GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
-        self.data_dir = pathlib.Path("../data/finance_docs")
+        self.data_dir = pathlib.Path("./data/finance_docs")
 
     def github_request(self, url):
         headers = {"Authorization": f"token {self.GITHUB_TOKEN}"} if self.GITHUB_TOKEN else {}
@@ -81,6 +81,7 @@ class PDFProcessor:
                 "metadata": {
                     "source": pdf_file['name'],
                     "raw_tokens": len(text.split()),
+                    "file_type": "pdf",
                 },
             }
         return None
