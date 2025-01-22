@@ -79,3 +79,5 @@ WANDB_PROJECT="rag-workshop-iiit-blr"
 5. Build an agentic system with tool use
 
 This workshop is designed to provide a hands-on understanding of RAG systems and their evolution from simple to more sophisticated implementations.
+
+If you're missing an API key, here: https://docs.google.com/document/d/1Jl12MCYGtR2sIg0PV7e9LMxyfJBnFGpR7eW-StllQQs
