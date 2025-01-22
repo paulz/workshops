@@ -156,25 +156,20 @@ class BM25SearchEngine:
 
 
 def batch_embed(pc, docs, input_type="passage", batch_size=25):
-    print(f"\n[batch_embed] Input docs length: {len(docs)}, type: {type(docs)}")
     all_embeddings = []
     
     for i in range(0, len(docs), batch_size):
         try:
             batch = docs[i : i + batch_size]
-            print(f"[batch_embed] Processing batch {i//batch_size + 1}, size: {len(batch)}")
             
             embeddings = pc.inference.embed(
                 model="multilingual-e5-large",
                 inputs=batch,
                 parameters={"input_type": input_type, "truncate": "END"}
             )
-            print(f"[batch_embed] Embeddings type: {type(embeddings)}, length: {len(embeddings)}")
             
             # Convert EmbeddingsList to list of values
             embedding_values = [emb.values for emb in embeddings]
-            if len(embedding_values) > 0:
-                print(f"[batch_embed] First embedding type: {type(embedding_values[0])}, length: {len(embedding_values[0])}")
             
             # Extend with the raw values
             all_embeddings.extend(embedding_values)
@@ -184,7 +179,6 @@ def batch_embed(pc, docs, input_type="passage", batch_size=25):
             
         except Exception as e:
             if "rate limit exceeded" in str(e).lower():
-                print(f"[batch_embed] Rate limit hit, waiting 60 seconds before retrying...")
                 time.sleep(60)  # Wait 60 seconds if we hit the rate limit
                 # Retry this batch
                 i -= batch_size
@@ -193,7 +187,6 @@ def batch_embed(pc, docs, input_type="passage", batch_size=25):
                 raise e
     
     stacked = np.stack(all_embeddings)
-    print(f"[batch_embed] Final output shape: {stacked.shape}, type: {type(stacked)}")
     return stacked
 
 
@@ -221,14 +214,11 @@ class DenseSearchEngine:
             data (list): A list of documents to be indexed. Each document should be a dictionary
                          containing a key 'cleaned_content' with the text to be indexed.
         """
-        print(f"\n[fit] Input data length: {len(data)}")
         self._data = data
         docs = [doc["text"] for doc in data]
-        print(f"[fit] Extracting embeddings for {len(docs)} documents")
         embeddings = batch_embed(
             self._pc, docs, input_type="passage"
         )
-        print(f"[fit] Embeddings shape: {embeddings.shape}")
         self._index = embeddings
         return self
 
@@ -243,26 +233,20 @@ class DenseSearchEngine:
         Returns:
             list: A list of dictionaries containing the source, text, and score of the top-k results.
         """
-        print(f"\n[search] Query: '{query[:50]}...' (truncated)")
-        print(f"[search] Index shape: {self._index.shape}")
         
         query_embedding = batch_embed(
             self._pc,
             [query],
             input_type="query",
         )
-        print(f"[search] Query embedding shape: {query_embedding.shape}")
         
         cosine_distances = cdist(query_embedding, self._index, metric="cosine")[0]
-        print(f"[search] Cosine distances shape: {cosine_distances.shape}")
         
         top_k_indices = cosine_distances.argsort()[:top_k]
-        print(f"[search] Top {top_k} indices: {top_k_indices}")
         
         output = []
         for idx in top_k_indices:
             score = round(float(1 - cosine_distances[idx]), 4)
-            print(f"[search] Document {idx} score: {score}")
             output.append(
                 {
                     "score": score,
@@ -373,15 +357,12 @@ class Retriever(weave.Model):
 
 class Reranker(weave.Model):
     model: str = "bge-reranker-v2-m3"
+    # model: str = "cohere-rerank-3.5"
 
     @weave.op
     async def invoke(self, query: str, documents: list[dict[str, Any]], top_n: int = 5):
         pc = Pinecone()
         texts = [doc["text"] for doc in documents]
-        
-        print(f"\n[reranker] Reranking {len(texts)} documents")
-        print(f"[reranker] Query: '{query[:50]}...' (truncated)")
-        print(f"[reranker] First document: '{texts[0][:50]}...' (truncated)")
         
         reranked = pc.inference.rerank(
             model=self.model,
@@ -392,8 +373,6 @@ class Reranker(weave.Model):
             parameters={"truncate": "END"}
         )
         
-        print(f"[reranker] Rerank result type: {type(reranked)}")
-        print(f"[reranker] Rerank result: {reranked}")
         
         output_docs = []
         for result in reranked.data:

@@ -35,7 +35,7 @@ class SearchDocumentation(BaseModel):
         description="A detailed query to search financial documents and SEC filings",
     )
     num_results: int = Field(10, description="The number of results to return")
-    docs_db: str = "data/financial_docs_db"
+    docs_db: str = "finance-docs"
     pinecone_env: str = Field("gcp-starter", description="Pinecone environment")
     _retriever: Any = PrivateAttr()
 

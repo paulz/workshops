@@ -802,5 +802,3 @@ def prepare_documents_for_pinecone(documents):
         }
         processed_docs.append(processed_doc)
     return processed_docs
-
-def
