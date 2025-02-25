@@ -1,9 +1,14 @@
 import asyncio
 import os
+import logging
 from functools import partial
 from threading import Lock
 from typing import Any
 import time
+from contextlib import contextmanager
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 import Stemmer
 from pinecone.grpc import PineconeGRPC as Pinecone
@@ -19,6 +24,7 @@ from pydantic import PrivateAttr
 from rerankers import Reranker as AnsReranker
 from scipy.spatial.distance import cdist
 from sklearn.feature_extraction.text import TfidfVectorizer
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 litellm.cache = Cache(disk_cache_dir="data/cache")
 
@@ -190,6 +196,14 @@ def batch_embed(pc, docs, input_type="passage", batch_size=25):
     return stacked
 
 
+@contextmanager
+def timer(operation_name):
+    start_time = time.time()
+    yield
+    duration = time.time() - start_time
+    logger.info(f"{operation_name} took {duration:.2f} seconds")
+
+
 class DenseSearchEngine:
     """
     A retriever model that uses dense embeddings for indexing and searching documents.
@@ -200,11 +214,35 @@ class DenseSearchEngine:
         data (list): The data to be indexed.
     """
 
-    def __init__(self, model="multilingual-e5-large"):
-        self._pc = Pinecone()
+    def __init__(
+        self,
+        model="multilingual-e5-large",
+        pinecone_config: dict = None
+    ):
+        """
+        Initialize with configurable Pinecone settings.
+        
+        Args:
+            model (str): Model name for embeddings
+            pinecone_config (dict): Configuration for Pinecone including:
+                - environment
+                - api_key
+                - project_name
+                - index_name
+        """
+        self._config = pinecone_config or {}
+        self._pc = Pinecone(
+            api_key=self._config.get('api_key'),
+            environment=self._config.get('environment', 'gcp-starter')
+        )
         self._model = model
         self._index = None
         self._data = None
+
+    def __del__(self):
+        # Cleanup Pinecone connection when object is destroyed
+        if hasattr(self, '_pc'):
+            self._pc.close()
 
     async def fit(self, data):
         """
@@ -216,44 +254,52 @@ class DenseSearchEngine:
         """
         self._data = data
         docs = [doc["text"] for doc in data]
-        embeddings = batch_embed(
-            self._pc, docs, input_type="passage"
-        )
-        self._index = embeddings
+        
+        # Add batch size configuration
+        BATCH_SIZE = 100  # Adjust based on your needs
+        
+        # Process in batches
+        embeddings = []
+        for i in range(0, len(docs), BATCH_SIZE):
+            batch = docs[i:i + BATCH_SIZE]
+            batch_embeddings = batch_embed(
+                self._pc, 
+                batch,
+                input_type="passage"
+            )
+            embeddings.extend(batch_embeddings)
+        
+        self._index = np.array(embeddings)
         return self
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def search(self, query, top_k=5, **kwargs):
         """
-        Searches the indexed data for the given query using cosine similarity.
-
-        Args:
-            query (str): The search query.
-            top_k (int): The number of top results to return. Default is 5.
-
-        Returns:
-            list: A list of dictionaries containing the source, text, and score of the top-k results.
+        Searches the indexed data with retry logic for resilience.
         """
-        
-        query_embedding = batch_embed(
-            self._pc,
-            [query],
-            input_type="query",
-        )
-        
-        cosine_distances = cdist(query_embedding, self._index, metric="cosine")[0]
-        
-        top_k_indices = cosine_distances.argsort()[:top_k]
-        
-        output = []
-        for idx in top_k_indices:
-            score = round(float(1 - cosine_distances[idx]), 4)
-            output.append(
-                {
-                    "score": score,
-                    **self._data[idx],
-                }
-            )
-        return output
+        with timer("vector_search"):
+            try:
+                query_embedding = batch_embed(
+                    self._pc,
+                    [query],
+                    input_type="query",
+                )
+                
+                cosine_distances = cdist(query_embedding, self._index, metric="cosine")[0]
+                top_k_indices = cosine_distances.argsort()[:top_k]
+                
+                output = []
+                for idx in top_k_indices:
+                    score = round(float(1 - cosine_distances[idx]), 4)
+                    output.append({
+                        "score": score,
+                        **self._data[idx],
+                    })
+                return output
+                
+            except Exception as e:
+                logger.error(f"Search failed: {e}")
+                raise
 
 
 def make_batches_for_db(
@@ -277,22 +323,29 @@ def make_batches_for_db(
 
 
 class VectorStoreSearchEngine:
+    
+    index_name = os.getenv("PINECONE_WANDB_INDEX_NAME", "finance-docs")
+    environment = os.getenv("PINECONE_ENVIRONMENT", "gcp-starter")
+
     def __init__(
         self,
-        index_name="finance-docs",
+        index_name=index_name,
         embedding_model="multilingual-e5-large",
         dimension=1024,
-        environment="gcp-starter"
+        environment=environment
     ):
         self._pc = Pinecone()
         self._model = embedding_model
         self._index_name = index_name
         self._environment = environment
         self._dimension = dimension
-        self._index = None
+        self._ensure_index_exists()
+        self._index = self._pc.Index(self._index_name)
 
-    async def fit(self, data):
+    def _ensure_index_exists(self):
+        """Ensure the Pinecone index exists, creating it if necessary."""
         if self._index_name not in self._pc.list_indexes().names():
+            logger.info(f"Index {self._index_name} does not exist. Creating...")
             self._pc.create_index(
                 name=self._index_name,
                 dimension=self._dimension,
@@ -303,9 +356,8 @@ class VectorStoreSearchEngine:
                 ),
                 deletion_protection="disabled"
             )
-        
-        self._index = self._pc.Index(self._index_name)
-        
+
+    async def fit(self, data):
         batch_size = 50
         for i in range(0, len(data), batch_size):
             batch = data[i:i + batch_size]
@@ -321,7 +373,6 @@ class VectorStoreSearchEngine:
         return self
 
     async def load(self):
-        self._index = self._pc.Index(self._index_name)
         return self
 
     async def search(self, query, top_k=5, filters=None):
