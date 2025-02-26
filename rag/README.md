@@ -39,7 +39,7 @@ The notebook covers:
 ## Installation
 
 ```bash
-!git clone https://github.com/parambharar/workshops.git
+!git clone https://github.com/ash0ts/workshops.git
 !cd workshops/rag
 !pip install uv
 !uv sync
