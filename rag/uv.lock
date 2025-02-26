@@ -1,5 +1,4 @@
 version = 1
-revision = 1
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.12' and python_full_version < '4.0' and sys_platform == 'linux'",
@@ -2812,7 +2811,7 @@ requires-dist = [
     { name = "transformers", specifier = ">=4.48.0" },
     { name = "tree-sitter", specifier = "<=0.21.3" },
     { name = "tree-sitter-languages", specifier = ">=1.10.2" },
-    { name = "weave", specifier = ">=0.51.27" },
+    { name = "weave", specifier = "==0.51.32" },
 ]
 
 [package.metadata.requires-dev]
@@ -3824,7 +3823,7 @@ wheels = [
 
 [[package]]
 name = "weave"
-version = "0.51.30"
+version = "0.51.32"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "emoji" },
@@ -3838,9 +3837,9 @@ dependencies = [
     { name = "uuid-utils" },
     { name = "wandb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/c3/427d63c8492357fc342dd7fdd0fbedaf8ea3db23ecdb076fc1d0d8364107/weave-0.51.30.tar.gz", hash = "sha256:56ff30001968710904aa8f1691a3f2e51da7447f763ae1e30d4e3a2db363e27c", size = 270955 }
+sdist = { url = "https://files.pythonhosted.org/packages/20/6a/3db56ae0e48e24e0133d0525e3ca20fe2420abc0bb7c7c962f23484c32f6/weave-0.51.32.tar.gz", hash = "sha256:1ba34a2ea9743b3611ef7ddb73721e84a31eef43c9d811e81960ca2f4b68d67c", size = 272827 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/05/18/ea4475234598db48987ac4d6c18cc821f3a458d9d386869fc731bb9ae7da/weave-0.51.30-py3-none-any.whl", hash = "sha256:9ad9e4996ec20bce5c76a3edbb53f0bab322ed344237172df9627eb6b419afed", size = 351965 },
+    { url = "https://files.pythonhosted.org/packages/5f/5c/1bb745731e53a2cfaf9878c5ba0d384fe6f29e7d10d79b869b10767dfc7a/weave-0.51.32-py3-none-any.whl", hash = "sha256:3a8dd2e969d9b1cf76b871a711f7be7a12f48efd78b31b0a3c7dbfc0fe3d3261", size = 354356 },
 ]
 
 [[package]]
